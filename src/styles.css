@@ -81,6 +81,30 @@ header h1 {
   text-align: center;
 }
 
+/* Evaluation score display */
+.eval-display {
+  background: var(--bg-secondary);
+  padding: 0.5rem 1rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  text-align: center;
+  font-family: 'Courier New', monospace;
+  font-weight: 700;
+  transition: color 0.3s;
+}
+
+.eval-display.white-advantage {
+  color: #fff;
+}
+
+.eval-display.black-advantage {
+  color: #aaa;
+}
+
+.eval-display.equal {
+  color: #888;
+}
+
 .move-history {
   background: var(--bg-secondary);
   padding: 0.75rem 1rem;
@@ -91,6 +115,59 @@ header h1 {
   font-family: 'Courier New', monospace;
   font-size: 0.85rem;
   color: var(--text-secondary);
+}
+
+/* Move history: each row is one move pair */
+.move-row {
+  display: grid;
+  grid-template-columns: 2.5rem 1fr 1fr; /* number | white | black */
+  gap: 0.25rem;
+  padding: 3px 0;
+  border-radius: 3px;
+}
+
+.move-row:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.move-number {
+  color: var(--text-secondary);
+  opacity: 0.6;
+  text-align: right;
+  padding-right: 0.4rem;
+}
+
+.move {
+  padding: 2px 6px;
+  border-radius: 3px;
+  cursor: default;
+}
+
+.move.latest {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-primary);
+  font-weight: 700;
+}
+
+.move-placeholder {
+  text-align: center;
+  color: var(--text-secondary);
+  opacity: 0.5;
+  padding: 2rem 0;
+  font-style: italic;
+}
+
+/* Game over status styling */
+.status.game-over {
+  background: linear-gradient(135deg, #b33 40%, #933 100%);
+  color: white;
+  font-weight: 700;
+  animation: pulse-glow 1.5s ease-in-out infinite alternate;
+}
+
+@keyframes pulse-glow {
+  from { box-shadow: 0 0 4px rgba(180, 50, 50, 0.3); }
+  to   { box-shadow: 0 0 12px rgba(180, 50, 50, 0.6); }
 }
 
 .controls {
@@ -130,4 +207,213 @@ header h1 {
   .side-panel {
     width: min(90vw, 560px);
   }
+}
+
+/* ===================================================
+   CHESSBOARD — Grid, Squares, Pieces
+   =================================================== */
+
+/* 
+  CSS Grid: This creates an 8x8 grid automatically.
+  Python analogy: Like doing:
+    for row in range(8):
+      for col in range(8):
+        draw_square(row, col)
+  But CSS does the layout for us.
+*/
+.board {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);  /* 8 equal columns */
+  grid-template-rows: repeat(8, 1fr);     /* 8 equal rows */
+  width: 100%;
+  height: 100%;
+  user-select: none;        /* Prevent text selection when clicking/dragging */
+  -webkit-user-select: none;
+}
+
+/* Individual square */
+.square {
+  position: relative;       /* So we can position pieces/dots inside */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+/* Square colors */
+.square.light {
+  background-color: var(--square-light);
+}
+
+.square.dark {
+  background-color: var(--square-dark);
+}
+
+/* Selected square highlight */
+.square.selected {
+  background-color: var(--square-highlight) !important;
+  /* Blend with the square color */
+  background-image: linear-gradient(var(--square-highlight), var(--square-highlight));
+  background-blend-mode: multiply;
+}
+
+/* Last move highlights */
+.square.last-move-from,
+.square.last-move-to {
+  background-color: rgba(255, 255, 0, 0.35) !important;
+  background-image: none;
+}
+
+.square.last-move-from.light,
+.square.last-move-to.light {
+  background-color: #f5f682 !important;
+}
+
+.square.last-move-from.dark,
+.square.last-move-to.dark {
+  background-color: #b9ca43 !important;
+}
+
+/* King in check */
+.square.in-check {
+  background: radial-gradient(ellipse at center, rgba(255, 0, 0, 0.8) 0%, rgba(255, 0, 0, 0.4) 40%, transparent 70%) !important;
+}
+
+/* Disabled board (during AI turn) */
+.board.disabled {
+  pointer-events: none;
+  opacity: 0.9;
+}
+
+/* ===================================================
+   PIECES
+   =================================================== */
+
+.piece {
+  width: 85%;
+  height: 85%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;     /* Clicks pass through to the square */
+  z-index: 2;
+  transition: none;
+}
+
+.piece svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* Floating piece during drag */
+.piece.dragging {
+  position: fixed;
+  pointer-events: none;
+  z-index: 1000;
+  cursor: grabbing;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.4));
+}
+
+/* ===================================================
+   LEGAL MOVE INDICATORS
+   =================================================== */
+
+/* Dot for empty square (quiet move) */
+.move-dot {
+  width: 28%;
+  height: 28%;
+  border-radius: 50%;
+  background-color: rgba(0, 0, 0, 0.15);
+  position: absolute;
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* Ring for capture square */
+.capture-ring {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  top: 0;
+  left: 0;
+  border-radius: 50%;
+  border: 7px solid rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* ===================================================
+   COORDINATE LABELS (a-h, 1-8)
+   =================================================== */
+
+.coord {
+  position: absolute;
+  font-size: 0.7rem;
+  font-weight: 700;
+  pointer-events: none;
+  user-select: none;
+  z-index: 4;
+}
+
+/* File labels (a-h) — bottom-right of bottom row squares */
+.coord-file {
+  bottom: 2px;
+  right: 4px;
+}
+
+/* Rank labels (1-8) — top-left of leftmost column squares */
+.coord-rank {
+  top: 2px;
+  left: 4px;
+}
+
+/* Label colors: contrast with square background */
+.dark-text {
+  color: var(--square-dark);
+}
+
+.light-text {
+  color: var(--square-light);
+}
+
+/* ===================================================
+   PAWN PROMOTION DIALOG
+   =================================================== */
+
+.promotion-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+}
+
+.promotion-dialog {
+  display: flex;
+  background: #fff;
+  border-radius: 8px;
+  padding: 8px;
+  gap: 4px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+}
+
+.promotion-option {
+  width: 70px;
+  height: 70px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.15s;
+}
+
+.promotion-option:hover {
+  background-color: #e0e0e0;
 }
