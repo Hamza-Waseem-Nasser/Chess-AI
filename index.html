@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Chess AI</title>
+  <link rel="stylesheet" href="/src/styles.css">
+</head>
+<body>
+  <!-- 
+    This is the entire UI skeleton.
+    The board and controls will be rendered by JavaScript inside these containers.
+    This pattern (empty containers + JS rendering) is how modern web apps work.
+  -->
+  <div id="app">
+    <header>
+      <h1>Chess AI</h1>
+    </header>
+
+    <main class="game-container">
+      <!-- The chessboard will be rendered here by board.js -->
+      <div id="board-container"></div>
+
+      <!-- Side panel: move history, controls, status -->
+      <aside class="side-panel">
+        <div id="status" class="status">White to move</div>
+        <div id="move-history" class="move-history"></div>
+        <div class="controls">
+          <button id="btn-new-game">New Game</button>
+          <button id="btn-undo">Undo</button>
+        </div>
+      </aside>
+    </main>
+  </div>
+
+  <!-- 
+    type="module" tells the browser this is an ES module.
+    Vite uses this to enable import/export and hot reload.
+  -->
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
