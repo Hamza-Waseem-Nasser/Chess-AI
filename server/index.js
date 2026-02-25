@@ -3,81 +3,179 @@
 // ============================================
 // PURPOSE:
 //   This server sits between the browser and OpenAI.
-//   It keeps the API key secret (in .env) and streams
-//   the LLM's response back to the browser in real-time.
+//   It supports TWO modes:
+//
+//   FREE TIER:  Server uses its own API key (from .env), all models
+//               available, rate-limited to 30 moves/hour per IP.
+//
+//   BYOK TIER:  User sends their own API key in the X-API-Key header.
+//               Any model, unlimited usage. The key is used per-request
+//               and never stored on the server.
 //
 // ARCHITECTURE:
 //   Browser ──POST /api/chess-move──▶ This Server ──▶ OpenAI API
 //   Browser ◀──SSE (streaming text)── This Server ◀── OpenAI API
 //
-// Python analogy:
-//   This is like a FastAPI app with one endpoint:
+// MULTI-MODEL SUPPORT:
+//   Standard models (GPT-4o, GPT-4o-mini):
+//     - role: "system", temperature, max_tokens
+//     - Streams delta.content only
 //
-//   @app.post("/api/chess-move")
-//   async def chess_move(request):
-//       response = openai.chat.completions.create(stream=True, ...)
-//       for chunk in response:
-//           yield chunk
+//   Reasoning models (o3, o1):
+//     - role: "developer" (instead of "system")
+//     - NO temperature parameter
+//     - max_completion_tokens (instead of max_tokens)
+//     - Streams delta.reasoning_content THEN delta.content
 //
 // HOW TO RUN:
 //   node server/index.js
 //   (runs on http://localhost:3001)
 // ============================================
 
-import 'dotenv/config';          // Loads .env file → process.env.OPENAI_API_KEY
+import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import OpenAI from 'openai';
 
-// ---- Validate environment ----
-if (!process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY === 'sk-your-api-key-here') {
-  console.error('\n❌ ERROR: Set your OpenAI API key in .env file!');
-  console.error('   Open .env and replace "sk-your-api-key-here" with your real key.');
-  console.error('   Get a key at: https://platform.openai.com/api-keys\n');
-  process.exit(1);
+// ============================================
+// MODEL CONFIGURATION
+// ============================================
+
+const MODELS = {
+  'gpt-4o':      { reasoning: false, label: 'GPT-4o' },
+  'gpt-4o-mini': { reasoning: false, label: 'GPT-4o Mini' },
+  'o3':          { reasoning: true,  label: 'o3' },
+  'o1':          { reasoning: true,  label: 'o1' },
+};
+
+const FREE_TIER_MODEL = 'gpt-4o-mini'; // Default for free tier, but all models allowed
+
+function isReasoningModel(model) {
+  return MODELS[model]?.reasoning === true;
 }
 
-// ---- Initialize OpenAI client ----
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+// ============================================
+// AI PERSONALITY DEFINITIONS
+// ============================================
 
-const MODEL = process.env.OPENAI_MODEL || 'gpt-4o';
-
-// ---- Initialize Express server ----
-const app = express();
-const PORT = 3001;
-
-// CORS: Allow the Vite dev server (port 3000) to call this server (port 3001)
-// Without this, the browser blocks cross-origin requests.
-// Python equivalent: FastAPI CORSMiddleware
-app.use(cors({
-  origin: ['http://localhost:3000', 'http://localhost:5173'],
-  methods: ['POST'],
-}));
-
-// Parse JSON request bodies
-app.use(express.json());
+const PERSONALITIES = {
+  aggressive: 'You are cocky and love trash-talking. Tease the opponent. Speak with confidence and bravado. Example comments: "That all you got?", "Watch and learn, rookie."',
+  chill:      'You are friendly and encouraging. Compliment good moves, keep it casual. Warm tone. Example: "Nice move!", "This is a fun game!"',
+  dramatic:   'You are theatrical and over-the-top dramatic. Everything is a HUGE moment. Speak like a wrestling announcer or Shakespeare villain. Example: "THE KNIGHT DESCENDS UPON YOUR KINGDOM!"',
+  grandmaster:'You are calm, analytical, slightly cold. Speak like a chess commentator. Dry humor, clinical. Example: "An interesting choice. Dubious, but interesting."',
+  troll:      'You are chaotic and funny. Use internet humor, memes, never serious. Playful chaos. Example: "lol nice try", "bruh moment incoming"',
+};
 
 // ============================================
-// CHESS MOVE ENDPOINT (streaming)
+// RATE LIMITING (Free Tier)
+// ============================================
+
+const rateLimits = new Map();   // IP → { count, resetAt }
+const FREE_LIMIT = 30;         // Max moves per hour for free tier
+
+function checkRateLimit(ip) {
+  const now = Date.now();
+  let entry = rateLimits.get(ip);
+
+  if (!entry || now > entry.resetAt) {
+    entry = { count: 0, resetAt: now + 3600000 }; // Reset every hour
+  }
+
+  if (entry.count >= FREE_LIMIT) {
+    return { allowed: false, remaining: 0, resetsIn: Math.ceil((entry.resetAt - now) / 60000) };
+  }
+
+  entry.count++;
+  rateLimits.set(ip, entry);
+  return { allowed: true, remaining: FREE_LIMIT - entry.count };
+}
+
+// Clean up old rate limit entries every 10 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, entry] of rateLimits) {
+    if (now > entry.resetAt) rateLimits.delete(ip);
+  }
+}, 600000);
+
+// ============================================
+// SERVER SETUP
+// ============================================
+
+// ---- Validate free-tier API key ----
+const HAS_SERVER_KEY = process.env.OPENAI_API_KEY && process.env.OPENAI_API_KEY !== 'sk-your-api-key-here';
+
+let serverClient = null;
+if (HAS_SERVER_KEY) {
+  serverClient = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+}
+
+const app = express();
+const PORT = process.env.PORT || 3001;
+
+// CORS: Allow Vite dev server + custom headers
+app.use(cors({
+  origin: ['http://localhost:3000', 'http://localhost:5173'],
+  methods: ['GET', 'POST'],
+  allowedHeaders: ['Content-Type', 'X-API-Key'],
+}));
+
+app.use(express.json());
+
+// ---- Helper: Get OpenAI client (BYOK or server key) ----
+function getClient(req) {
+  const userKey = req.headers['x-api-key'];
+  if (userKey && userKey.startsWith('sk-')) {
+    return { client: new OpenAI({ apiKey: userKey }), isBYOK: true };
+  }
+  if (serverClient) {
+    return { client: serverClient, isBYOK: false };
+  }
+  return { client: null, isBYOK: false };
+}
+
+// ============================================
+// CHESS MOVE ENDPOINT (streaming, multi-model)
 // ============================================
 
 app.post('/api/chess-move', async (req, res) => {
   try {
-    const { fen, moveHistory, legalMoves, playerColor, difficulty } = req.body;
+    const { fen, moveHistory, legalMoves, playerColor, difficulty, model: requestedModel, personality } = req.body;
 
     // Validate input
     if (!fen || !legalMoves || legalMoves.length === 0) {
       return res.status(400).json({ error: 'Missing required fields: fen, legalMoves' });
     }
 
+    // ---- Get the right OpenAI client ----
+    const { client, isBYOK } = getClient(req);
+    if (!client) {
+      return res.status(503).json({
+        error: 'No API key available. Enter your own key in Settings, or ask the site owner to configure a server key.',
+      });
+    }
+
+    // ---- Determine model ----
+    // Free tier: forced to gpt-4o-mini
+    // BYOK: use requested model (validated against known list)
+    // Determine model — free tier can use any model, just rate limited
+    let model = requestedModel && MODELS[requestedModel] ? requestedModel : 'gpt-4o-mini';
+
+    if (!isBYOK) {
+      // Rate limit check for free tier
+      const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'unknown';
+      const limit = checkRateLimit(ip);
+      if (!limit.allowed) {
+        return res.status(429).json({
+          error: `Free tier rate limit reached (${FREE_LIMIT} moves/hour). Enter your own API key for unlimited play. Resets in ~${limit.resetsIn} minutes.`,
+        });
+      }
+    }
+
+    const isReasoning = isReasoningModel(model);
     const aiColor = playerColor === 'w' ? 'Black' : 'White';
 
-    // ---- Difficulty levels ----
-    // We change the ELO in the prompt and the temperature.
-    // Lower ELO + higher temperature = weaker (more random) play.
-    // Higher ELO + lower temperature = stronger (more precise) play.
+    // ---- Difficulty settings ----
     const difficultySettings = {
       beginner:     { elo: 800,  temp: 1.0, desc: 'a casual beginner (around 800 ELO). Make simple, obvious moves. Occasionally make mistakes. Do NOT play optimal moves.' },
       intermediate: { elo: 1500, temp: 0.7, desc: 'an intermediate club player (around 1500 ELO). Play solid moves but not always the best.' },
@@ -85,28 +183,28 @@ app.post('/api/chess-move', async (req, res) => {
     };
     const diff = difficultySettings[difficulty] || difficultySettings.intermediate;
 
-    // ---- Build the prompt ----
-    // This is the most important part — how we talk to the LLM.
-    // We give it:
-    //   1. A role (chess player)
-    //   2. The position (FEN)
-    //   3. The move history (so it understands context)
-    //   4. The EXACT list of legal moves (so it can't hallucinate illegal ones)
-    //   5. A strict output format (JSON)
+    // ---- Personality ----
+    const personalityDesc = PERSONALITIES[personality] || PERSONALITIES.aggressive;
 
+    // ---- Build the system prompt (with personality + comment) ----
     const systemPrompt = `You are ${diff.desc} You are playing as ${aiColor}.
+
+PERSONALITY: ${personalityDesc}
 
 RULES:
 - You MUST choose a move from the legal moves list provided.
 - Do NOT invent moves — only pick from the list.
 - Respond with valid JSON and nothing else.
 - Think deeply about the position before choosing.
+- Include a short in-character comment to taunt/interact with the opponent.
+- The comment MUST match your personality and react to the current position.
+- If the opponent just made a bad move, react to it. If the position is tense, acknowledge it.
 
 RESPONSE FORMAT (strict JSON, no markdown, no code fences):
-{"move": "<your chosen move in SAN notation>", "reasoning": "<your analysis of the position and why you chose this move, 2-4 sentences>"}`;
+{"move": "<your chosen move in SAN notation>", "reasoning": "<your analysis, 2-4 sentences>", "comment": "<short in-character comment to the player, 1-2 sentences, match your personality>"}`;
 
-    const moveHistoryStr = moveHistory && moveHistory.length > 0 
-      ? `Move history: ${moveHistory}` 
+    const moveHistoryStr = moveHistory && moveHistory.length > 0
+      ? `Move history: ${moveHistory}`
       : 'This is the starting position.';
 
     const userPrompt = `Current position (FEN): ${fen}
@@ -114,52 +212,68 @@ ${moveHistoryStr}
 
 Legal moves: [${legalMoves.join(', ')}]
 
-Choose your move and explain your reasoning. Reply with JSON only.`;
+Choose your move, explain your reasoning, and add a personality comment. Reply with JSON only.`;
 
-    // ---- Set up SSE (Server-Sent Events) streaming ----
-    // SSE is a protocol where the server keeps the connection open
-    // and sends text chunks as they arrive. The browser receives them
-    // as events via EventSource or fetch + ReadableStream.
-    //
-    // Python analogy: StreamingResponse in FastAPI
-    //   return StreamingResponse(generate(), media_type="text/event-stream")
-
+    // ---- Set up SSE streaming ----
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    // ---- Call OpenAI with streaming ----
-    const stream = await openai.chat.completions.create({
-      model: MODEL,
+    // ---- Build API parameters (reasoning models need different params) ----
+    //
+    // Standard models: role: "system", temperature, max_tokens
+    // Reasoning models: role: "developer", NO temperature, max_completion_tokens
+    //
+    const systemRole = isReasoning ? 'developer' : 'system';
+
+    const apiParams = {
+      model,
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: systemRole, content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      stream: true,            // Enable streaming — get tokens one by one
-      temperature: diff.temp,  // Adjusted by difficulty (higher = more random)
-      max_tokens: 500,         // Limit response length
-    });
+      stream: true,
+    };
+
+    if (isReasoning) {
+      // Reasoning models: no temperature, use max_completion_tokens
+      apiParams.max_completion_tokens = 16000;
+    } else {
+      // Standard models: have temperature control
+      apiParams.temperature = diff.temp;
+      apiParams.max_tokens = 500;
+    }
+
+    // ---- Call OpenAI with streaming ----
+    const stream = await client.chat.completions.create(apiParams);
 
     // ---- Stream tokens to the browser ----
-    // Each chunk from OpenAI contains a small piece of text (a "token").
-    // We forward each piece to the browser immediately.
+    // For reasoning models: Phase 1 = delta.reasoning_content, Phase 2 = delta.content
+    // For standard models: only delta.content
     let fullResponse = '';
+    let fullReasoning = '';
 
     for await (const chunk of stream) {
-      const content = chunk.choices[0]?.delta?.content;
+      const choice = chunk.choices[0];
+      if (!choice) continue;
+
+      // Phase 1: Reasoning tokens (o-series models only)
+      // These contain the AI's internal "thinking" process
+      const reasoningContent = choice.delta?.reasoning_content;
+      if (reasoningContent) {
+        fullReasoning += reasoningContent;
+        res.write(`data: ${JSON.stringify({ type: 'reasoning', content: reasoningContent })}\n\n`);
+      }
+
+      // Phase 2: Content tokens (the actual JSON response)
+      const content = choice.delta?.content;
       if (content) {
         fullResponse += content;
-
-        // Send this chunk to the browser as an SSE event
-        // Format: "data: <text>\n\n"
         res.write(`data: ${JSON.stringify({ type: 'token', content })}\n\n`);
       }
     }
 
     // ---- Parse the complete response ----
-    // The LLM should have returned JSON like: {"move": "Nf3", "reasoning": "..."}
-    // But LLMs are messy — they sometimes wrap it in code fences or add extra text.
-    // We need to extract the JSON robustly.
     let parsed = null;
     try {
       parsed = extractJSON(fullResponse);
@@ -169,29 +283,104 @@ Choose your move and explain your reasoning. Reply with JSON only.`;
 
     // ---- Validate the move ----
     if (parsed && parsed.move && legalMoves.includes(parsed.move)) {
-      // Valid move! Send the final result
-      res.write(`data: ${JSON.stringify({ type: 'done', move: parsed.move, reasoning: parsed.reasoning || '' })}\n\n`);
+      res.write(`data: ${JSON.stringify({
+        type: 'done',
+        move: parsed.move,
+        reasoning: parsed.reasoning || '',
+        comment: parsed.comment || '',
+        thinkingTokens: fullReasoning.length > 0, // Tell frontend there was reasoning
+      })}\n\n`);
     } else {
-      // Invalid move — retry with a correction prompt
+      // Invalid move — retry
       console.warn('LLM returned invalid move, retrying...', parsed);
-      const retryResult = await retryMove(openai, MODEL, fen, legalMoves, aiColor, moveHistoryStr, fullResponse);
+      const retryResult = await retryMove(client, model, fen, legalMoves, aiColor, moveHistoryStr, fullResponse);
       res.write(`data: ${JSON.stringify({ type: 'done', ...retryResult })}\n\n`);
     }
 
-    // Close the SSE stream
     res.write(`data: ${JSON.stringify({ type: 'end' })}\n\n`);
     res.end();
 
   } catch (error) {
     console.error('Error in /api/chess-move:', error.message);
 
-    // If headers already sent (streaming started), send error as SSE
+    // Detect specific OpenAI errors
+    let userMessage = error.message;
+    if (error.status === 401) {
+      userMessage = 'Invalid API key. Please check your key in Settings (🔑).';
+    } else if (error.status === 429) {
+      userMessage = 'Rate limited by OpenAI. Wait a moment and try again.';
+    } else if (error.status === 404) {
+      userMessage = `Model not found. You may not have access to this model.`;
+    }
+
     if (res.headersSent) {
-      res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+      res.write(`data: ${JSON.stringify({ type: 'error', message: userMessage })}\n\n`);
       res.end();
     } else {
-      res.status(500).json({ error: error.message });
+      res.status(error.status || 500).json({ error: userMessage });
     }
+  }
+});
+
+// ============================================
+// TAKEBACK DECISION ENDPOINT
+// ============================================
+// When the player requests a takeback (undo), the AI decides
+// whether to accept or refuse, based on its personality.
+// This is a small, cheap API call (always uses gpt-4o-mini).
+
+app.post('/api/takeback', async (req, res) => {
+  try {
+    const { fen, moveHistory, personality, lastMove } = req.body;
+
+    const { client } = getClient(req);
+    if (!client) {
+      // No client — auto-accept
+      return res.json({ accept: true, comment: 'Sure, take it back.' });
+    }
+
+    const personalityDesc = PERSONALITIES[personality] || PERSONALITIES.aggressive;
+
+    const response = await client.chat.completions.create({
+      model: 'gpt-4o-mini', // Always cheap model for this
+      messages: [
+        {
+          role: 'system',
+          content: `You are a chess AI with this personality: ${personalityDesc}
+
+The player wants to take back their last move. Decide whether to accept or refuse based on your personality.
+- Aggressive: refuse most of the time, mock them
+- Chill: usually accept, be kind
+- Dramatic: make it theatrical either way
+- Grandmaster: reluctantly accept, note it's unsportsmanlike
+- Troll: random, chaotic response
+
+Respond with JSON only: {"accept": true/false, "comment": "your response to the player"}`,
+        },
+        {
+          role: 'user',
+          content: `Position: ${fen}\nHistory: ${moveHistory || 'none'}\nLast move to take back: ${lastMove || 'unknown'}\n\nDo you allow the takeback? Reply with JSON only.`,
+        },
+      ],
+      temperature: 0.9,
+      max_tokens: 100,
+    });
+
+    const text = response.choices[0]?.message?.content || '';
+    try {
+      const parsed = extractJSON(text);
+      return res.json({
+        accept: !!parsed.accept,
+        comment: parsed.comment || (parsed.accept ? 'Fine.' : 'No way.'),
+      });
+    } catch {
+      // Default: accept with generic comment
+      return res.json({ accept: true, comment: 'Fine, take it back.' });
+    }
+  } catch (error) {
+    console.error('Takeback error:', error.message);
+    // On error, just accept
+    return res.json({ accept: true, comment: 'Sure.' });
   }
 });
 
@@ -202,28 +391,24 @@ Choose your move and explain your reasoning. Reply with JSON only.`;
 async function retryMove(client, model, fen, legalMoves, aiColor, moveHistory, previousResponse) {
   console.log('Retrying with correction prompt...');
 
+  // For retry, always use a standard (non-reasoning) model for speed + reliability
+  const retryModel = isReasoningModel(model) ? 'gpt-4o-mini' : model;
+  const retryRole = isReasoningModel(retryModel) ? 'developer' : 'system';
+
   try {
     const response = await client.chat.completions.create({
-      model,
+      model: retryModel,
       messages: [
         {
-          role: 'system',
+          role: retryRole,
           content: `You are playing chess as ${aiColor}. Your previous response was invalid. You MUST choose from the legal moves list. Respond with ONLY valid JSON.`,
         },
         {
           role: 'user',
-          content: `Position (FEN): ${fen}
-${moveHistory}
-
-Your previous response was: ${previousResponse}
-This was INVALID. 
-
-LEGAL MOVES (you MUST pick one of these exactly): [${legalMoves.join(', ')}]
-
-Reply with JSON ONLY: {"move": "<legal move from list>", "reasoning": "<brief explanation>"}`,
+          content: `Position (FEN): ${fen}\n${moveHistory}\n\nYour previous response was: ${previousResponse}\nThis was INVALID.\n\nLEGAL MOVES (you MUST pick one of these exactly): [${legalMoves.join(', ')}]\n\nReply with JSON ONLY: {"move": "<legal move from list>", "reasoning": "<brief explanation>", "comment": "<short comment>"}`,
         },
       ],
-      temperature: 0.3,   // Lower temperature for retry (more deterministic)
+      temperature: 0.3,
       max_tokens: 300,
     });
 
@@ -231,18 +416,19 @@ Reply with JSON ONLY: {"move": "<legal move from list>", "reasoning": "<brief ex
     const parsed = extractJSON(retryText);
 
     if (parsed && parsed.move && legalMoves.includes(parsed.move)) {
-      return { move: parsed.move, reasoning: parsed.reasoning || 'I reconsidered my choice.' };
+      return { move: parsed.move, reasoning: parsed.reasoning || 'I reconsidered.', comment: parsed.comment || '' };
     }
   } catch (e) {
     console.error('Retry also failed:', e.message);
   }
 
-  // Final fallback: pick a random legal move
+  // Final fallback: random legal move
   console.warn('All retries failed — falling back to random move');
   const fallbackMove = legalMoves[Math.floor(Math.random() * legalMoves.length)];
   return {
     move: fallbackMove,
     reasoning: '(AI had trouble deciding — played a random move)',
+    comment: 'Hmm... let me just play this.',
   };
 }
 
@@ -296,7 +482,20 @@ function extractJSON(text) {
 // ============================================
 
 app.get('/api/health', (req, res) => {
-  res.json({ status: 'ok', model: MODEL });
+  const { isBYOK } = getClient(req);
+  res.json({
+    status: 'ok',
+    tier: isBYOK ? 'byok' : (HAS_SERVER_KEY ? 'free' : 'no-key'),
+    models: Object.entries(MODELS).map(([id, cfg]) => ({
+      id,
+      label: cfg.label,
+      reasoning: cfg.reasoning,
+      available: true,  // All models available to everyone
+    })),
+    personalities: Object.keys(PERSONALITIES),
+    freeTierModel: FREE_TIER_MODEL,
+    hasServerKey: HAS_SERVER_KEY,
+  });
 });
 
 // ============================================
@@ -305,8 +504,10 @@ app.get('/api/health', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`\n♟  Chess AI Server running on http://localhost:${PORT}`);
-  console.log(`   Model: ${MODEL}`);
+  console.log(`   Free tier key: ${HAS_SERVER_KEY ? 'configured ✅' : 'NOT SET ⚠️'}`);
+  console.log(`   Free tier model: ${FREE_TIER_MODEL}`);
   console.log(`   Endpoints:`);
-  console.log(`     POST /api/chess-move  — Get AI move (streaming)`);
-  console.log(`     GET  /api/health      — Server status\n`);
+  console.log(`     POST /api/chess-move   — Get AI move (streaming)`);
+  console.log(`     POST /api/takeback     — Takeback decision`);
+  console.log(`     GET  /api/health       — Server status\n`);
 });

@@ -55,6 +55,12 @@ header h1 {
   justify-content: center;
 }
 
+/* Board area — wraps board + chat bubble */
+.board-area {
+  position: relative;
+  flex-shrink: 0;
+}
+
 /* Board container — will hold the 8x8 grid */
 #board-container {
   width: 560px;
@@ -188,9 +194,11 @@ header h1 {
   transition: opacity 0.2s;
 }
 
-/* Flip and sound buttons — smaller, icon-only */
+/* Flip, sound, key, share buttons — smaller, icon-only */
 .controls button#btn-flip,
-.controls button#btn-sound {
+.controls button#btn-sound,
+.controls button#btn-key,
+.controls button#btn-share {
   flex: 0 0 auto;
   padding: 0.6rem 0.7rem;
   font-size: 1.1rem;
@@ -201,39 +209,381 @@ header h1 {
   opacity: 0.85;
 }
 
-/* Difficulty selector */
+/* Settings group */
+.settings-group {
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  padding: 0.5rem 0.75rem;
+}
+
 .setting-row {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.5rem 0;
+  padding: 0.35rem 0;
 }
 
 .setting-row label {
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--text-secondary);
   white-space: nowrap;
+  min-width: 60px;
 }
 
-.difficulty-select {
+.setting-select {
   flex: 1;
-  padding: 0.4rem 0.5rem;
-  border: 1px solid rgba(255, 255, 255, 0.15);
+  padding: 0.35rem 0.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 4px;
-  background: var(--bg-secondary);
+  background: var(--bg-primary);
   color: var(--text-primary);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   cursor: pointer;
   outline: none;
 }
 
-.difficulty-select:focus {
+.setting-select:focus {
   border-color: var(--accent);
 }
 
-.difficulty-select option {
+.setting-select option {
   background: var(--bg-secondary);
   color: var(--text-primary);
+}
+
+.setting-select option:disabled {
+  color: #666;
+}
+
+/* ===================================================
+   CHESS CLOCK
+   =================================================== */
+
+.chess-clock {
+  display: flex;
+  align-items: center;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.clock-side {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.75rem;
+  transition: background 0.3s, color 0.3s;
+}
+
+.clock-side.active {
+  background: rgba(129, 182, 76, 0.15);
+}
+
+.clock-side.low-time {
+  background: rgba(255, 80, 80, 0.15);
+}
+
+.clock-side.low-time .clock-time {
+  color: #ff5050;
+  animation: clock-pulse 0.5s ease-in-out infinite alternate;
+}
+
+@keyframes clock-pulse {
+  from { opacity: 1; }
+  to { opacity: 0.5; }
+}
+
+.clock-divider {
+  padding: 0 0.25rem;
+  font-size: 0.8rem;
+  opacity: 0.4;
+}
+
+.clock-label {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.clock-time {
+  font-family: 'Courier New', monospace;
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+/* ===================================================
+   STATS DISPLAY
+   =================================================== */
+
+.stats-display {
+  min-height: 20px;
+}
+
+.stats-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  background: var(--bg-secondary);
+  border-radius: 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: 'Courier New', monospace;
+}
+
+.stat.win { color: #81b64c; }
+.stat.loss { color: #e74c3c; }
+.stat.draw { color: #888; }
+.stat.rate { color: var(--text-primary); }
+.stat.streak-win { color: #f39c12; }
+.stat.streak-loss { color: #e74c3c; }
+
+/* ===================================================
+   CHAT BUBBLE (AI Personality Comments)
+   =================================================== */
+
+.chat-bubble {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) translateY(10px);
+  max-width: 400px;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  padding: 0.6rem 1rem;
+  background: #1a1a2e;
+  border: 1px solid rgba(129, 182, 76, 0.3);
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  opacity: 0;
+  transition: opacity 0.3s, transform 0.3s;
+  pointer-events: none;
+  z-index: 50;
+  white-space: nowrap;
+}
+
+.chat-bubble.visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+  pointer-events: auto;
+}
+
+/* Speech bubble tail */
+.chat-bubble::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: #1a1a2e;
+}
+
+.chat-bubble-avatar {
+  font-size: 1.2rem;
+  flex-shrink: 0;
+}
+
+.chat-bubble-content {
+  font-size: 0.88rem;
+  color: var(--text-primary);
+  line-height: 1.4;
+  white-space: normal;
+}
+
+.chat-bubble-close {
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  cursor: pointer;
+  opacity: 0.5;
+  padding: 0 4px;
+}
+
+.chat-bubble-close:hover {
+  opacity: 1;
+}
+
+/* ===================================================
+   API KEY MODAL (BYOK System)
+   =================================================== */
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+.modal-content {
+  background: var(--bg-primary);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 2rem;
+  max-width: 480px;
+  width: 90%;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.modal-content h2 {
+  font-size: 1.3rem;
+  margin-bottom: 0.5rem;
+}
+
+.modal-subtitle {
+  color: var(--text-secondary);
+  font-size: 0.88rem;
+  line-height: 1.5;
+  margin-bottom: 1.5rem;
+}
+
+.modal-section {
+  margin-bottom: 1.25rem;
+}
+
+.modal-section label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  margin-bottom: 0.4rem;
+  font-weight: 600;
+}
+
+.modal-section label .optional {
+  font-weight: 400;
+  opacity: 0.6;
+}
+
+.modal-input-row {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.modal-input-row input {
+  flex: 1;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  font-family: 'Courier New', monospace;
+  outline: none;
+}
+
+.modal-input-row input:focus {
+  border-color: var(--accent);
+}
+
+.modal-btn-icon {
+  padding: 0.6rem 0.7rem;
+  background: var(--bg-secondary);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.modal-hint {
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  margin-top: 0.4rem;
+}
+
+.modal-hint a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.modal-hint a:hover {
+  text-decoration: underline;
+}
+
+.tier-badge {
+  padding: 0.6rem 1rem;
+  border-radius: 6px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  text-align: center;
+}
+
+.tier-badge.free {
+  background: rgba(255, 170, 0, 0.12);
+  color: #ffaa00;
+  border: 1px solid rgba(255, 170, 0, 0.25);
+}
+
+.tier-badge.byok {
+  background: rgba(129, 182, 76, 0.12);
+  color: #81b64c;
+  border: 1px solid rgba(129, 182, 76, 0.25);
+}
+
+.modal-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 1.5rem;
+}
+
+.modal-btn {
+  padding: 0.6rem 1.25rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+}
+
+.modal-btn:hover {
+  opacity: 0.85;
+}
+
+.modal-btn.primary {
+  background: var(--accent);
+  color: white;
+}
+
+.modal-btn.secondary {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--text-secondary);
+}
+
+.modal-btn.danger {
+  background: rgba(255, 80, 80, 0.15);
+  color: #ff5050;
+  margin-left: auto;
+}
+
+/* ===================================================
+   REASONING PANEL — Deep Thought Mode (o-series)
+   =================================================== */
+
+.reasoning-status.reasoning-deep {
+  background: rgba(147, 51, 234, 0.2);
+  color: #a855f7;
+  animation: status-pulse 1.2s ease-in-out infinite;
+}
+
+.deep-thought {
+  color: #c4b5fd;
+  font-style: italic;
+  border-left: 2px solid rgba(147, 51, 234, 0.4);
+  padding-left: 0.75rem;
 }
 
 /* Responsive — stack on small screens */
@@ -243,6 +593,7 @@ header h1 {
     align-items: center;
   }
 
+  .board-area,
   #board-container {
     width: min(90vw, 560px);
     height: min(90vw, 560px);

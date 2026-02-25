@@ -18,30 +18,73 @@
     </header>
 
     <main class="game-container">
-      <!-- Left: Chessboard -->
-      <div id="board-container"></div>
+      <!-- Left: Chessboard + AI Chat Bubble -->
+      <div class="board-area" id="board-area">
+        <div id="board-container"></div>
+        <!-- ChatBubble will inject its speech bubble here via JS -->
+      </div>
 
-      <!-- Middle: Status, Move History, Controls -->
+      <!-- Middle: Status, Settings, Move History, Controls -->
       <aside class="side-panel">
+        <!-- Chess Clock -->
+        <div id="clock-container"></div>
+
         <div id="status" class="status">White to move</div>
         <div id="eval-display" class="eval-display equal">Eval: +0.0</div>
 
-        <!-- Difficulty selector -->
-        <div class="setting-row">
-          <label for="difficulty-select">Difficulty:</label>
-          <select id="difficulty-select" class="difficulty-select">
-            <option value="beginner">Beginner (~800)</option>
-            <option value="intermediate" selected>Intermediate (~1500)</option>
-            <option value="advanced">Advanced (~2200)</option>
-          </select>
+        <!-- Settings: Difficulty, Model, Personality, Time Control -->
+        <div class="settings-group">
+          <div class="setting-row">
+            <label for="difficulty-select">Difficulty:</label>
+            <select id="difficulty-select" class="setting-select">
+              <option value="beginner">Beginner (~800)</option>
+              <option value="intermediate" selected>Intermediate (~1500)</option>
+              <option value="advanced">Advanced (~2200)</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label for="model-select">Model:</label>
+            <select id="model-select" class="setting-select">
+              <option value="gpt-4o-mini" selected>GPT-4o Mini</option>
+              <option value="gpt-4o">GPT-4o</option>
+              <option value="o3">o3 (Reasoning)</option>
+              <option value="o1">o1 (Reasoning)</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label for="personality-select">AI Style:</label>
+            <select id="personality-select" class="setting-select">
+              <option value="aggressive" selected>🔥 Aggressive</option>
+              <option value="chill">😊 Chill</option>
+              <option value="dramatic">🎭 Dramatic</option>
+              <option value="grandmaster">🎩 Grandmaster</option>
+              <option value="troll">🤡 Troll</option>
+            </select>
+          </div>
+          <div class="setting-row">
+            <label for="time-select">Time:</label>
+            <select id="time-select" class="setting-select">
+              <option value="unlimited" selected>∞ Unlimited</option>
+              <option value="bullet">1+0 Bullet</option>
+              <option value="blitz">3+2 Blitz</option>
+              <option value="rapid">10+0 Rapid</option>
+              <option value="classical">30+0 Classical</option>
+            </select>
+          </div>
         </div>
 
+        <!-- Win / Loss / Draw Stats -->
+        <div id="stats-display" class="stats-display"></div>
+
         <div id="move-history" class="move-history"></div>
+
         <div class="controls">
           <button id="btn-new-game">New Game</button>
           <button id="btn-undo">Undo</button>
           <button id="btn-flip" title="Flip Board">🔄</button>
           <button id="btn-sound" title="Sound On">🔊</button>
+          <button id="btn-key" title="API Key Settings">🔑</button>
+          <button id="btn-share" title="Share Game">🔗</button>
         </div>
       </aside>
 

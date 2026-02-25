@@ -2,46 +2,61 @@
 // src/ai/llmService.js — Frontend LLM Client
 // ============================================
 // PURPOSE:
-//   This module sends the chess position to our backend server
-//   and reads the streaming response. It does NOT talk to OpenAI
-//   directly — the API key stays safe on the server.
+//   Sends chess positions to our backend server and reads
+//   streaming responses. Supports BYOK (user's own API key)
+//   and multi-model selection.
 //
-// STREAMING:
-//   We use the Fetch API with ReadableStream to read SSE
-//   (Server-Sent Events) as they arrive. Each chunk contains
-//   a piece of the AI's reasoning text, which we pass to a
-//   callback so the UI can display it in real-time.
+// STREAMING EVENTS FROM SERVER:
+//   {type: "reasoning", content: "..."}  ← o-series thinking (phase 1)
+//   {type: "token", content: "..."}      ← JSON response building (phase 2)
+//   {type: "done", move, reasoning, comment}  ← final result
+//   {type: "error", message}             ← error
+//   {type: "end"}                        ← stream complete
 //
 // Python analogy:
-//   import httpx
-//   async with httpx.stream("POST", url, json=data) as response:
-//       async for line in response.aiter_lines():
+//   async with httpx.stream("POST", url, json=data) as r:
+//       async for line in r.aiter_lines():
 //           process(line)
 // ============================================
 
-const API_BASE = 'http://localhost:3001';
+// Dynamic base URL:
+// Dev: Vite on :3000, server on :3001 → need full URL
+// Prod (Vercel): same origin → empty string (relative URLs)
+const API_BASE = import.meta.env.DEV ? 'http://localhost:3001' : '';
 
 /**
  * Request a chess move from the LLM via our backend server.
- * Streams the reasoning text and returns the final move.
- * 
+ * Streams reasoning and tokens, returns the final move + comment.
+ *
  * @param {Object} params
- * @param {string} params.fen - Current board position in FEN notation
- * @param {string} params.moveHistory - PGN move history string
- * @param {string[]} params.legalMoves - Array of legal moves in SAN notation
+ * @param {string} params.fen - Board position (FEN)
+ * @param {string} params.moveHistory - PGN move history
+ * @param {string[]} params.legalMoves - Legal moves in SAN
  * @param {string} params.playerColor - 'w' or 'b'
- * @param {string} [params.difficulty] - 'beginner', 'intermediate', or 'advanced'
- * @param {function} onToken - Called with each text chunk as it streams in
- * @returns {Promise<{move: string, reasoning: string}>}
+ * @param {string} [params.difficulty] - beginner/intermediate/advanced
+ * @param {string} [params.model] - Model ID (gpt-4o, o3, etc.)
+ * @param {string} [params.personality] - AI personality style
+ * @param {string} [params.apiKey] - User's BYOK API key (optional)
+ * @param {Object} callbacks
+ * @param {function} callbacks.onToken - Called with each JSON content chunk
+ * @param {function} [callbacks.onReasoning] - Called with each reasoning chunk (o-series)
+ * @returns {Promise<{move: string, reasoning: string, comment: string}>}
  */
-export async function requestChessMove({ fen, moveHistory, legalMoves, playerColor, difficulty }, onToken) {
-  // ---- Send the request ----
-  // We POST the position data to our backend server.
-  // The server will call OpenAI and stream the response back.
+export async function requestChessMove(params, callbacks = {}) {
+  const { fen, moveHistory, legalMoves, playerColor, difficulty, model, personality, apiKey } = params;
+  const { onToken, onReasoning } = callbacks;
+
+  // ---- Build request headers ----
+  const headers = { 'Content-Type': 'application/json' };
+  if (apiKey) {
+    headers['X-API-Key'] = apiKey;
+  }
+
+  // ---- Send request ----
   const response = await fetch(`${API_BASE}/api/chess-move`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ fen, moveHistory, legalMoves, playerColor, difficulty }),
+    headers,
+    body: JSON.stringify({ fen, moveHistory, legalMoves, playerColor, difficulty, model, personality }),
   });
 
   if (!response.ok) {
@@ -50,59 +65,60 @@ export async function requestChessMove({ fen, moveHistory, legalMoves, playerCol
   }
 
   // ---- Read the SSE stream ----
-  // The response body is a ReadableStream. We read it chunk by chunk.
-  // Each SSE message looks like: "data: {"type":"token","content":"some text"}\n\n"
-  //
-  // Python analogy: This is like iterating over response.iter_lines()
-  // but in the browser using the Streams API.
-
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  let buffer = '';        // Accumulates partial lines
-  let fullReasoning = ''; // Complete reasoning text
+  let buffer = '';
+  let fullReasoning = '';
   let finalMove = null;
   let finalReasoning = '';
+  let finalComment = '';
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    // Decode the binary chunk to text
     buffer += decoder.decode(value, { stream: true });
 
-    // Process complete SSE messages (terminated by \n\n)
+    // Process complete SSE messages (separated by \n\n)
     const messages = buffer.split('\n\n');
-    buffer = messages.pop(); // Keep the incomplete part
+    buffer = messages.pop(); // Keep incomplete part
 
     for (const message of messages) {
       if (!message.startsWith('data: ')) continue;
 
       try {
-        const data = JSON.parse(message.slice(6)); // Remove "data: " prefix
+        const data = JSON.parse(message.slice(6));
 
         switch (data.type) {
-          case 'token':
-            // A piece of the AI's streaming text
+          case 'reasoning':
+            // Reasoning model thinking tokens (o-series Phase 1)
             fullReasoning += data.content;
+            if (onReasoning) onReasoning(data.content);
+            break;
+
+          case 'token':
+            // JSON content tokens (Phase 2, or only phase for standard models)
             if (onToken) onToken(data.content);
             break;
 
           case 'done':
-            // The final parsed result with move and reasoning
+            // Final parsed result
             finalMove = data.move;
-            finalReasoning = data.reasoning || fullReasoning;
+            finalReasoning = data.reasoning || fullReasoning || '';
+            finalComment = data.comment || '';
             break;
 
           case 'error':
             throw new Error(data.message || 'Server error during streaming');
 
           case 'end':
-            // Stream complete
             break;
         }
       } catch (e) {
-        if (e.message.includes('Server error')) throw e;
-        // Ignore parse errors for partial messages
+        if (e.message.includes('Server error') || e.message.includes('Invalid API')
+            || e.message.includes('Rate limit') || e.message.includes('Model not found')) {
+          throw e;
+        }
         console.warn('SSE parse warning:', e.message);
       }
     }
@@ -112,16 +128,56 @@ export async function requestChessMove({ fen, moveHistory, legalMoves, playerCol
     throw new Error('No valid move received from AI');
   }
 
-  return { move: finalMove, reasoning: finalReasoning };
+  return { move: finalMove, reasoning: finalReasoning, comment: finalComment };
 }
 
 /**
- * Check if the backend server is running and healthy.
- * @returns {Promise<{status: string, model: string}>}
+ * Request the AI's decision on a takeback (undo) request.
+ * @param {Object} params
+ * @param {string} params.fen - Current position
+ * @param {string} params.moveHistory - PGN
+ * @param {string} params.personality - AI personality
+ * @param {string} params.lastMove - The move being taken back
+ * @param {string} [params.apiKey] - BYOK key
+ * @returns {Promise<{accept: boolean, comment: string}>}
  */
-export async function checkHealth() {
+export async function requestTakeback({ fen, moveHistory, personality, lastMove, apiKey }) {
+  const headers = { 'Content-Type': 'application/json' };
+  if (apiKey) {
+    headers['X-API-Key'] = apiKey;
+  }
+
   try {
-    const response = await fetch(`${API_BASE}/api/health`);
+    const response = await fetch(`${API_BASE}/api/takeback`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ fen, moveHistory, personality, lastMove }),
+    });
+
+    if (!response.ok) {
+      return { accept: true, comment: 'Sure, take it back.' };
+    }
+
+    return await response.json();
+  } catch (e) {
+    // Network error — just accept
+    return { accept: true, comment: 'Fine.' };
+  }
+}
+
+/**
+ * Check if the backend server is running.
+ * @param {string} [apiKey] - Optional BYOK key to check tier
+ * @returns {Promise<Object>} Health data including tier, available models
+ */
+export async function checkHealth(apiKey) {
+  const headers = {};
+  if (apiKey) {
+    headers['X-API-Key'] = apiKey;
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/api/health`, { headers });
     return await response.json();
   } catch (e) {
     throw new Error('Chess AI server is not running. Start it with: node server/index.js');
