@@ -18,19 +18,35 @@
     </header>
 
     <main class="game-container">
-      <!-- The chessboard will be rendered here by board.js -->
+      <!-- Left: Chessboard -->
       <div id="board-container"></div>
 
-      <!-- Side panel: move history, controls, status -->
+      <!-- Middle: Status, Move History, Controls -->
       <aside class="side-panel">
         <div id="status" class="status">White to move</div>
         <div id="eval-display" class="eval-display equal">Eval: +0.0</div>
+
+        <!-- Difficulty selector -->
+        <div class="setting-row">
+          <label for="difficulty-select">Difficulty:</label>
+          <select id="difficulty-select" class="difficulty-select">
+            <option value="beginner">Beginner (~800)</option>
+            <option value="intermediate" selected>Intermediate (~1500)</option>
+            <option value="advanced">Advanced (~2200)</option>
+          </select>
+        </div>
+
         <div id="move-history" class="move-history"></div>
         <div class="controls">
           <button id="btn-new-game">New Game</button>
           <button id="btn-undo">Undo</button>
+          <button id="btn-flip" title="Flip Board">🔄</button>
+          <button id="btn-sound" title="Sound On">🔊</button>
         </div>
       </aside>
+
+      <!-- Right: AI Reasoning Panel (streaming thoughts) -->
+      <div id="reasoning-container"></div>
     </main>
   </div>
 

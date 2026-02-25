@@ -581,11 +581,67 @@ export class BoardUI {
 
   /**
    * Full refresh: clear highlights, update pieces, re-apply highlights.
-   * Called after every move.
+   * Called after every move. Includes piece slide animation.
    */
   refresh(boardState, lastMove = null, checkSquare = null) {
     this.lastMove = lastMove;
     this.clearHighlights();
+
+    // ---- ANIMATION (FLIP technique) ----
+    // If there's a lastMove, animate the piece sliding from → to.
+    // FLIP = First, Last, Invert, Play:
+    //   1. FIRST: Record where the piece is now (at "from" square)
+    //   2. LAST: Update the board (piece teleports to "to" square)
+    //   3. INVERT: Offset the piece back to where it was
+    //   4. PLAY: Animate the offset back to 0 (piece slides into place)
+    //
+    // Python analogy: Like calculating a transform offset in Pygame
+    //   and using a tween to animate it over a few frames.
+    if (lastMove) {
+      const fromEl = this.squares[lastMove.from];
+      const toEl = this.squares[lastMove.to];
+
+      if (fromEl && toEl) {
+        // 1. FIRST: Get pixel position of source square
+        const fromRect = fromEl.getBoundingClientRect();
+        const toRect = toEl.getBoundingClientRect();
+        const dx = fromRect.left - toRect.left;
+        const dy = fromRect.top - toRect.top;
+
+        // 2. LAST: Update the board (piece appears at destination)
+        this.updatePosition(boardState);
+        this.highlightLastMove(lastMove);
+        this.highlightCheck(checkSquare);
+
+        // 3. INVERT + 4. PLAY: Offset the piece, then animate
+        const pieceEl = toEl.querySelector('.piece');
+        if (pieceEl && (dx !== 0 || dy !== 0)) {
+          // Set the piece at its old position (no transition yet)
+          pieceEl.style.transition = 'none';
+          pieceEl.style.transform = `translate(${dx}px, ${dy}px)`;
+          pieceEl.style.zIndex = '10';
+
+          // Force the browser to apply the offset before animating
+          // (This is called "forcing a reflow" — without it, the browser
+          //  might skip the offset and go straight to the final position)
+          pieceEl.offsetHeight; // eslint-disable-line no-unused-expressions
+
+          // Now animate to the real position
+          pieceEl.style.transition = 'transform 0.15s ease-out';
+          pieceEl.style.transform = 'translate(0, 0)';
+
+          // Clean up after animation completes
+          pieceEl.addEventListener('transitionend', () => {
+            pieceEl.style.transition = '';
+            pieceEl.style.transform = '';
+            pieceEl.style.zIndex = '';
+          }, { once: true });
+        }
+        return;
+      }
+    }
+
+    // No animation (e.g., new game, undo)
     this.updatePosition(boardState);
     this.highlightLastMove(lastMove);
     this.highlightCheck(checkSquare);

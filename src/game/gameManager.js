@@ -21,6 +21,9 @@ import { Chess } from 'chess.js';
 import { BoardUI } from '../ui/board.js';
 import { MoveHistory } from './moveHistory.js';
 import { evaluate, evaluateDetailed } from '../ai/evaluate.js';
+import { requestChessMove, checkHealth } from '../ai/llmService.js';
+import { ReasoningPanel } from '../ui/reasoningPanel.js';
+import { playSoundForMove, playGameOverSound, playErrorSound } from '../ui/sounds.js';
 
 export class GameManager {
   constructor() {
@@ -35,6 +38,12 @@ export class GameManager {
     // ---- Configuration ----
     this.playerColor = 'w';  // Human plays white
     this.aiColor = 'b';      // AI plays black
+    this.difficulty = 'intermediate'; // beginner | intermediate | advanced
+    this.soundEnabled = true;  // Sound effects on/off
+
+    // ---- Reasoning Panel ----
+    this.reasoningPanel = null;  // Initialized in init()
+    this.serverOnline = false;   // Is the backend server running?
   }
 
   /**
@@ -78,9 +87,35 @@ export class GameManager {
     // Update status text
     this.updateStatus();
 
+    // Create the reasoning panel
+    this.reasoningPanel = new ReasoningPanel('reasoning-container');
+
     // Wire up buttons
     document.getElementById('btn-new-game').addEventListener('click', () => this.newGame());
     document.getElementById('btn-undo').addEventListener('click', () => this.undo());
+    document.getElementById('btn-flip').addEventListener('click', () => this.flipBoard());
+
+    // Wire up difficulty selector
+    const difficultySelect = document.getElementById('difficulty-select');
+    if (difficultySelect) {
+      difficultySelect.addEventListener('change', (e) => {
+        this.difficulty = e.target.value;
+        console.log(`Difficulty set to: ${this.difficulty}`);
+      });
+    }
+
+    // Wire up sound toggle
+    const soundToggle = document.getElementById('btn-sound');
+    if (soundToggle) {
+      soundToggle.addEventListener('click', () => {
+        this.soundEnabled = !this.soundEnabled;
+        soundToggle.textContent = this.soundEnabled ? '🔊' : '🔇';
+        soundToggle.title = this.soundEnabled ? 'Sound On' : 'Sound Off';
+      });
+    }
+
+    // Check if backend server is running
+    this._checkServer();
 
     console.log('♟ Game initialized');
   }
@@ -104,11 +139,17 @@ export class GameManager {
     const result = this.chess.move(moveObj);
 
     if (result) {
-      // Move was valid — update the board
+      // Move was valid — update the board with animation
       const lastMove = { from, to };
-      const checkSquare = this.chess.isCheck() ? this._findKing(this.chess.turn()) : null;
+      const isCheck = this.chess.isCheck();
+      const checkSquare = isCheck ? this._findKing(this.chess.turn()) : null;
       this.board.refresh(this.chess.board(), lastMove, checkSquare);
       this.updateStatus();
+
+      // Play sound effect
+      if (this.soundEnabled) {
+        playSoundForMove(result, this.chess.isGameOver(), isCheck);
+      }
 
       // Record in move history
       this.moveHistory.addMove(result.san);
@@ -121,7 +162,7 @@ export class GameManager {
         return;
       }
 
-      // If it's now AI's turn, trigger AI (Module 5+)
+      // If it's now AI's turn, trigger AI
       if (this.chess.turn() === this.aiColor) {
         this.board.setInteractive(false);
         this._triggerAIMove();
@@ -130,40 +171,134 @@ export class GameManager {
   }
 
   // ==================================================
-  // AI MOVE (placeholder until Module 5+)
+  // AI MOVE — LLM-powered with streaming reasoning
   // ==================================================
 
   /**
-   * Trigger the AI to make a move.
-   * For now, plays a random legal move after a short delay.
-   * Will be replaced with real AI in Module 5.
+   * Trigger the AI to make a move using the LLM.
+   * Sends the position to the backend, streams the reasoning,
+   * and plays the returned move.
+   *
+   * If the server is offline, falls back to a random move.
    */
-  _triggerAIMove() {
-    // Simulate "thinking" with a small delay
-    setTimeout(() => {
-      const moves = this.chess.moves({ verbose: true });
-      if (moves.length === 0) return;
+  async _triggerAIMove() {
+    if (!this.serverOnline) {
+      // Server offline — fall back to random move
+      this._playRandomMove();
+      return;
+    }
 
-      // Random move for now
-      const randomMove = moves[Math.floor(Math.random() * moves.length)];
-      const result = this.chess.move(randomMove);
+    // Show thinking indicator in the reasoning panel
+    this.reasoningPanel.startThinking();
+
+    try {
+      // Get the data we need to send to the LLM
+      const fen = this.chess.fen();
+      const moveHistory = this.chess.pgn();
+      const legalMoves = this.chess.moves(); // SAN notation list
+
+      console.log(`Asking LLM for move... (${legalMoves.length} legal moves)`);
+
+      // Call the LLM — this streams the response
+      // onToken callback fires for each chunk of text the LLM produces
+      const { move, reasoning } = await requestChessMove(
+        { fen, moveHistory, legalMoves, playerColor: this.playerColor, difficulty: this.difficulty },
+        (token) => this.reasoningPanel.appendToken(token)
+      );
+
+      console.log(`LLM chose: ${move}`);
+      console.log(`Reasoning: ${reasoning}`);
+
+      // Execute the move on the board
+      const result = this.chess.move(move);
 
       if (result) {
         const lastMove = { from: result.from, to: result.to };
-        const checkSquare = this.chess.isCheck() ? this._findKing(this.chess.turn()) : null;
+        const isCheck = this.chess.isCheck();
+        const checkSquare = isCheck ? this._findKing(this.chess.turn()) : null;
         this.board.refresh(this.chess.board(), lastMove, checkSquare);
         this.updateStatus();
 
+        // Play sound effect
+        if (this.soundEnabled) {
+          playSoundForMove(result, this.chess.isGameOver(), isCheck);
+        }
+
         // Record in move history
         this.moveHistory.addMove(result.san);
+
+        // Show final result in reasoning panel
+        this.reasoningPanel.showResult(result.san, reasoning);
 
         console.log(`AI: ${result.san}`);
 
         if (!this.chess.isGameOver()) {
           this.board.setInteractive(true);
         }
+      } else {
+        // Move was rejected by chess.js (shouldn't happen with legal moves list)
+        console.error('LLM move rejected by chess.js:', move);
+        this.reasoningPanel.showError(`Invalid move: ${move}`);
+        if (this.soundEnabled) playErrorSound();
+        this._playRandomMove();
       }
-    }, 300);  // 300ms delay to feel natural
+    } catch (error) {
+      console.error('LLM error:', error.message);
+      this.reasoningPanel.showError(error.message);
+      // Fall back to random move so the game isn't stuck
+      this._playRandomMove();
+    }
+  }
+
+  /**
+   * Fallback: play a random legal move (when LLM is unavailable).
+   */
+  _playRandomMove() {
+    setTimeout(() => {
+      const moves = this.chess.moves({ verbose: true });
+      if (moves.length === 0) return;
+
+      const randomMove = moves[Math.floor(Math.random() * moves.length)];
+      const result = this.chess.move(randomMove);
+
+      if (result) {
+        const lastMove = { from: result.from, to: result.to };
+        const isCheck = this.chess.isCheck();
+        const checkSquare = isCheck ? this._findKing(this.chess.turn()) : null;
+        this.board.refresh(this.chess.board(), lastMove, checkSquare);
+        this.updateStatus();
+        this.moveHistory.addMove(result.san);
+
+        // Play sound effect
+        if (this.soundEnabled) {
+          playSoundForMove(result, this.chess.isGameOver(), isCheck);
+        }
+
+        console.log(`AI (random fallback): ${result.san}`);
+
+        if (!this.chess.isGameOver()) {
+          this.board.setInteractive(true);
+        }
+      }
+    }, 300);
+  }
+
+  /**
+   * Check if the backend server is running.
+   * If not, show a warning but let the game work with random moves.
+   */
+  async _checkServer() {
+    try {
+      const health = await checkHealth();
+      this.serverOnline = true;
+      console.log(`✅ AI server online (model: ${health.model})`);
+    } catch (e) {
+      this.serverOnline = false;
+      console.warn('⚠️ AI server offline — using random moves. Start with: node server/index.js');
+      if (this.reasoningPanel) {
+        this.reasoningPanel.showOffline();
+      }
+    }
   }
 
   // ==================================================
@@ -219,10 +354,49 @@ export class GameManager {
   newGame() {
     this.chess.reset();
     this.moveHistory.clear();
+    if (this.reasoningPanel) this.reasoningPanel.reset();
     this.board.setInteractive(true);
     this.board.refresh(this.chess.board(), null, null);
     this.updateStatus();
+    this._checkServer(); // Re-check server on new game
     console.log('♟ New game started');
+  }
+
+  /**
+   * Flip the board and swap player/AI colors.
+   * If you flip, you play as Black and the AI plays as White.
+   */
+  flipBoard() {
+    // Swap colors
+    const temp = this.playerColor;
+    this.playerColor = this.aiColor;
+    this.aiColor = temp;
+
+    // Flip the board visually
+    this.board.flip();
+    this.board.updatePosition(this.chess.board());
+
+    // Re-apply highlights
+    this.board.clearHighlights();
+    if (this.board.lastMove) {
+      this.board.highlightLastMove(this.board.lastMove);
+    }
+    if (this.chess.isCheck()) {
+      this.board.highlightCheck(this._findKing(this.chess.turn()));
+    }
+
+    // Update status to reflect new perspective
+    this.updateStatus();
+
+    // If it's now AI's turn after flip, trigger AI
+    if (this.chess.turn() === this.aiColor && !this.chess.isGameOver()) {
+      this.board.setInteractive(false);
+      this._triggerAIMove();
+    } else {
+      this.board.setInteractive(true);
+    }
+
+    console.log(`♟ Board flipped — you are now ${this.playerColor === 'w' ? 'White' : 'Black'}`);
   }
 
   /**

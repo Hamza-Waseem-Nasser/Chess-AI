@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+
+# Environment variables (API keys!)
+.env
+
+# Build output
+dist/
+
+# Editor files
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
