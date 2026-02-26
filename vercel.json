@@ -3,6 +3,8 @@
 
   "framework": "vite",
 
+  "buildCommand": "node ./node_modules/vite/bin/vite.js build",
+
   "functions": {
     "api/**/*.js": {
       "maxDuration": 60
