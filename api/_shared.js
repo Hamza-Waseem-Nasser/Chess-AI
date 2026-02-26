@@ -45,7 +45,7 @@ export const PERSONALITIES = {
 // Redis. This is a best-effort limit for free tier.
 
 const rateLimits = new Map();
-const FREE_LIMIT = 30;
+export const FREE_LIMIT = 30;
 
 export function checkRateLimit(ip) {
   const now = Date.now();
