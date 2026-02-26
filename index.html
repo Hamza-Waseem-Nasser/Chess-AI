@@ -3,100 +3,174 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Chess AI</title>
+  <title>Chess AI — Play Against AI</title>
+  <meta name="description" content="Play chess against an AI powered by GPT. Multiple personalities, difficulty levels, and real-time reasoning.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/src/styles.css">
 </head>
 <body>
-  <!-- 
-    This is the entire UI skeleton.
-    The board and controls will be rendered by JavaScript inside these containers.
-    This pattern (empty containers + JS rendering) is how modern web apps work.
-  -->
   <div id="app">
-    <header>
-      <h1>Chess AI</h1>
+    <!-- Top Navigation Bar -->
+    <header class="top-bar">
+      <div class="top-bar-left">
+        <div class="logo">
+          <span class="logo-icon">♛</span>
+          <span class="logo-text">Chess<span class="logo-accent">AI</span></span>
+        </div>
+      </div>
+      <div class="top-bar-center">
+        <div id="status" class="status-badge">White to move</div>
+      </div>
+      <div class="top-bar-right">
+        <button id="btn-key" class="icon-btn" title="API Key Settings" aria-label="API Key Settings">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4"/></svg>
+        </button>
+        <button id="btn-sound" class="icon-btn" title="Sound On" aria-label="Toggle Sound">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>
+        </button>
+      </div>
     </header>
 
     <main class="game-container">
-      <!-- Left: Chessboard + AI Chat Bubble -->
-      <div class="board-area" id="board-area">
-        <div id="board-container"></div>
-        <!-- ChatBubble will inject its speech bubble here via JS -->
-      </div>
-
-      <!-- Middle: Status, Settings, Move History, Controls -->
-      <aside class="side-panel">
+      <!-- Left Panel: Settings + Move History -->
+      <aside class="panel panel-left">
         <!-- Chess Clock -->
         <div id="clock-container"></div>
 
-        <div id="status" class="status">White to move</div>
-        <div id="eval-display" class="eval-display equal">Eval: +0.0</div>
-
-        <!-- Settings: Difficulty, Model, Personality, Time Control -->
-        <div class="settings-group">
-          <div class="setting-row">
-            <label for="difficulty-select">Difficulty:</label>
-            <select id="difficulty-select" class="setting-select">
-              <option value="beginner">Beginner (~800)</option>
-              <option value="intermediate" selected>Intermediate (~1500)</option>
-              <option value="advanced">Advanced (~2200)</option>
-            </select>
-          </div>
-          <div class="setting-row">
-            <label for="model-select">Model:</label>
-            <select id="model-select" class="setting-select">
-              <option value="gpt-4o-mini" selected>GPT-4o Mini</option>
-              <option value="gpt-4o">GPT-4o</option>
-              <option value="o3">o3 (Reasoning)</option>
-              <option value="o1">o1 (Reasoning)</option>
-            </select>
-          </div>
-          <div class="setting-row">
-            <label for="personality-select">AI Style:</label>
-            <select id="personality-select" class="setting-select">
-              <option value="aggressive" selected>🔥 Aggressive</option>
-              <option value="chill">😊 Chill</option>
-              <option value="dramatic">🎭 Dramatic</option>
-              <option value="grandmaster">🎩 Grandmaster</option>
-              <option value="troll">🤡 Troll</option>
-            </select>
-          </div>
-          <div class="setting-row">
-            <label for="time-select">Time:</label>
-            <select id="time-select" class="setting-select">
-              <option value="unlimited" selected>∞ Unlimited</option>
-              <option value="bullet">1+0 Bullet</option>
-              <option value="blitz">3+2 Blitz</option>
-              <option value="rapid">10+0 Rapid</option>
-              <option value="classical">30+0 Classical</option>
-            </select>
+        <!-- Settings Accordion -->
+        <div class="settings-card">
+          <button class="settings-toggle" id="settings-toggle" aria-expanded="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+            <span>Game Settings</span>
+            <svg class="chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
+          </button>
+          <div class="settings-body" id="settings-body">
+            <div class="setting-row">
+              <label for="difficulty-select">Difficulty</label>
+              <select id="difficulty-select" class="setting-select">
+                <option value="beginner">Beginner (~800)</option>
+                <option value="intermediate" selected>Intermediate (~1500)</option>
+                <option value="advanced">Advanced (~2200)</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <label for="model-select">Model</label>
+              <select id="model-select" class="setting-select">
+                <option value="gpt-4o-mini" selected>GPT-4o Mini</option>
+                <option value="gpt-4o">GPT-4o</option>
+                <option value="o3">o3 (Reasoning)</option>
+                <option value="o1">o1 (Reasoning)</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <label for="personality-select">AI Style</label>
+              <select id="personality-select" class="setting-select">
+                <option value="aggressive" selected>🔥 Aggressive</option>
+                <option value="chill">😊 Chill</option>
+                <option value="dramatic">🎭 Dramatic</option>
+                <option value="grandmaster">🎩 Grandmaster</option>
+                <option value="troll">🤡 Troll</option>
+              </select>
+            </div>
+            <div class="setting-row">
+              <label for="time-select">Time</label>
+              <select id="time-select" class="setting-select">
+                <option value="unlimited" selected>∞ Unlimited</option>
+                <option value="bullet">1+0 Bullet</option>
+                <option value="blitz">3+2 Blitz</option>
+                <option value="rapid">10+0 Rapid</option>
+                <option value="classical">30+0 Classical</option>
+              </select>
+            </div>
           </div>
         </div>
 
-        <!-- Win / Loss / Draw Stats -->
+        <!-- Stats -->
         <div id="stats-display" class="stats-display"></div>
 
-        <div id="move-history" class="move-history"></div>
-
-        <div class="controls">
-          <button id="btn-new-game">New Game</button>
-          <button id="btn-undo">Undo</button>
-          <button id="btn-flip" title="Flip Board">🔄</button>
-          <button id="btn-sound" title="Sound On">🔊</button>
-          <button id="btn-key" title="API Key Settings">🔑</button>
-          <button id="btn-share" title="Share Game">🔗</button>
+        <!-- Move History -->
+        <div class="move-history-card">
+          <div class="move-history-header">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="12 8 12 12 14 14"/><circle cx="12" cy="12" r="10"/></svg>
+            <span>Moves</span>
+          </div>
+          <div id="move-history" class="move-history"></div>
         </div>
       </aside>
 
-      <!-- Right: AI Reasoning Panel (streaming thoughts) -->
-      <div id="reasoning-container"></div>
+      <!-- Center: Chessboard + Eval Bar + Controls -->
+      <div class="board-column">
+        <div class="board-wrapper">
+          <!-- Evaluation Bar -->
+          <div class="eval-bar-container">
+            <div class="eval-bar" id="eval-bar">
+              <div class="eval-bar-fill" id="eval-bar-fill" style="height: 50%"></div>
+              <div class="eval-bar-score" id="eval-bar-score">0.0</div>
+            </div>
+          </div>
+
+          <!-- Board + Chat Bubble -->
+          <div class="board-area" id="board-area">
+            <div class="player-bar opponent">
+              <div class="player-avatar ai-avatar">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22"/><path d="M12 2a4 4 0 0 0-4 4c0 1.95 1.4 3.58 3.25 3.93"/><path d="M8.56 13a8 8 0 0 0-2.3 3.5"/><path d="M15.44 13a8 8 0 0 1 2.3 3.5"/></svg>
+                <span class="ai-pulse"></span>
+              </div>
+              <div class="player-info">
+                <span class="player-name">Chess AI</span>
+                <span class="player-rating" id="ai-rating">~1500</span>
+              </div>
+            </div>
+            <div id="board-container"></div>
+            <div class="player-bar player">
+              <div class="player-avatar">👤</div>
+              <div class="player-info">
+                <span class="player-name">You</span>
+                <span class="player-rating">Human</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Board Controls -->
+        <div class="board-controls">
+          <button id="btn-new-game" class="ctrl-btn ctrl-primary">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+            New Game
+          </button>
+          <button id="btn-undo" class="ctrl-btn">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+            Undo
+          </button>
+          <button id="btn-flip" class="ctrl-btn ctrl-icon" title="Flip Board" aria-label="Flip Board">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 0 1 4-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></svg>
+          </button>
+          <button id="btn-share" class="ctrl-btn ctrl-icon" title="Share Game" aria-label="Share Game">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Right Panel: AI Reasoning -->
+      <div id="reasoning-container" class="panel panel-right"></div>
     </main>
+
+    <!-- Game Over Overlay -->
+    <div id="game-over-overlay" class="game-over-overlay hidden">
+      <div class="game-over-modal">
+        <div class="game-over-icon" id="game-over-icon">♚</div>
+        <h2 class="game-over-title" id="game-over-title">Game Over</h2>
+        <p class="game-over-subtitle" id="game-over-subtitle"></p>
+        <div class="game-over-actions">
+          <button id="btn-rematch" class="ctrl-btn ctrl-primary">Play Again</button>
+          <button id="btn-review" class="ctrl-btn">Review</button>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <!-- 
-    type="module" tells the browser this is an ES module.
-    Vite uses this to enable import/export and hot reload.
-  -->
   <script type="module" src="/src/main.js"></script>
 </body>
 </html>

@@ -43,7 +43,9 @@ export class ChatBubble {
       this.bubble = document.createElement('div');
       this.bubble.className = 'chat-bubble';
       this.bubble.innerHTML = `
-        <div class="chat-bubble-avatar">🤖</div>
+        <div class="chat-bubble-avatar">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2a4 4 0 0 1 4 4c0 1.95-1.4 3.58-3.25 3.93L12 22"/><path d="M12 2a4 4 0 0 0-4 4c0 1.95 1.4 3.58 3.25 3.93"/><path d="M8.56 13a8 8 0 0 0-2.3 3.5"/><path d="M15.44 13a8 8 0 0 1 2.3 3.5"/></svg>
+        </div>
         <div class="chat-bubble-content">
           <span class="chat-bubble-text">${this._escape(message)}</span>
         </div>
@@ -55,7 +57,8 @@ export class ChatBubble {
         this.hide();
       });
 
-      this.parent.appendChild(this.bubble);
+      // Append to body so it's always visible (fixed positioning)
+      document.body.appendChild(this.bubble);
 
       // Trigger entrance animation (needs 2 rAF for CSS transition to work)
       requestAnimationFrame(() => {

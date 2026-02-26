@@ -101,18 +101,46 @@ export class GameManager {
     document.getElementById('btn-key').addEventListener('click', () => this.apiKeyModal.show());
     document.getElementById('btn-share').addEventListener('click', () => this.shareGame());
 
-    // Sound toggle
+    // Game over overlay buttons
+    const rematchBtn = document.getElementById('btn-rematch');
+    if (rematchBtn) rematchBtn.addEventListener('click', () => {
+      document.getElementById('game-over-overlay')?.classList.add('hidden');
+      this.newGame();
+    });
+    const reviewBtn = document.getElementById('btn-review');
+    if (reviewBtn) reviewBtn.addEventListener('click', () => {
+      document.getElementById('game-over-overlay')?.classList.add('hidden');
+    });
+
+    // Settings toggle
+    const settingsToggle = document.getElementById('settings-toggle');
+    const settingsBody = document.getElementById('settings-body');
+    if (settingsToggle && settingsBody) {
+      settingsToggle.addEventListener('click', () => {
+        const expanded = settingsToggle.getAttribute('aria-expanded') === 'true';
+        settingsToggle.setAttribute('aria-expanded', !expanded);
+        settingsBody.classList.toggle('collapsed', expanded);
+      });
+    }
+
+    // Sound toggle (SVG icon button)
     const soundBtn = document.getElementById('btn-sound');
     soundBtn.addEventListener('click', () => {
       this.soundEnabled = !this.soundEnabled;
-      soundBtn.textContent = this.soundEnabled ? '🔊' : '🔇';
+      soundBtn.classList.toggle('sound-off', !this.soundEnabled);
       soundBtn.title = this.soundEnabled ? 'Sound On' : 'Sound Off';
+      if (this.soundEnabled) {
+        soundBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14M15.54 8.46a5 5 0 0 1 0 7.07"/></svg>';
+      } else {
+        soundBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><line x1="23" y1="9" x2="17" y2="15"/><line x1="17" y1="9" x2="23" y2="15"/></svg>';
+      }
     });
 
     // ---- Wire up selectors ----
     const diffSelect = document.getElementById('difficulty-select');
     if (diffSelect) diffSelect.addEventListener('change', (e) => {
       this.difficulty = e.target.value;
+      this._updateAIRating();
     });
 
     const modelSelect = document.getElementById('model-select');
@@ -393,19 +421,37 @@ export class GameManager {
 
     if (this.soundEnabled) playGameOverSound();
 
+    const overlay = document.getElementById('game-over-overlay');
+    const iconEl = document.getElementById('game-over-icon');
+    const titleEl = document.getElementById('game-over-title');
+    const subtitleEl = document.getElementById('game-over-subtitle');
+
     if (this.chess.isCheckmate()) {
       const winnerColor = this.chess.turn() === 'w' ? 'b' : 'w';
       if (winnerColor === this.playerColor) {
         this.stats.recordWin();
         this.chatBubble.show('Well played... I\'ll get you next time!', 1000);
+        if (iconEl) iconEl.textContent = '🏆';
+        if (titleEl) { titleEl.textContent = 'Victory!'; titleEl.style.color = '#64ffda'; }
+        if (subtitleEl) subtitleEl.textContent = 'You won by checkmate';
       } else {
         this.stats.recordLoss();
         this.chatBubble.show('Better luck next time! 😎', 1000);
+        if (iconEl) iconEl.textContent = '♚';
+        if (titleEl) { titleEl.textContent = 'Defeat'; titleEl.style.color = '#ef5350'; }
+        if (subtitleEl) subtitleEl.textContent = 'Checkmate — better luck next time!';
       }
     } else {
-      // Draw (stalemate, insufficient material, etc.)
       this.stats.recordDraw();
       this.chatBubble.show('A draw... not bad, not bad.', 1000);
+      if (iconEl) iconEl.textContent = '🤝';
+      if (titleEl) { titleEl.textContent = 'Draw'; titleEl.style.color = '#8892b0'; }
+      if (subtitleEl) subtitleEl.textContent = this.chess.isStalemate() ? 'Stalemate' : 'Draw by agreement';
+    }
+
+    // Show game over overlay after a short delay
+    if (overlay) {
+      setTimeout(() => overlay.classList.remove('hidden'), 800);
     }
   }
 
@@ -416,15 +462,30 @@ export class GameManager {
     if (this.soundEnabled) playGameOverSound();
 
     const statusEl = document.getElementById('status');
+    const overlay = document.getElementById('game-over-overlay');
+    const iconEl = document.getElementById('game-over-icon');
+    const titleEl = document.getElementById('game-over-title');
+    const subtitleEl = document.getElementById('game-over-subtitle');
+
     if (loserColor === this.playerColor) {
-      statusEl.textContent = 'You ran out of time! AI wins!';
-      statusEl.classList.add('game-over');
+      statusEl.textContent = 'You ran out of time!';
+      statusEl.className = 'status-badge game-over';
       this.stats.recordLoss();
       this.chatBubble.show('Time\'s up! Too slow! ⏰', 500);
+      if (iconEl) iconEl.textContent = '⏰';
+      if (titleEl) { titleEl.textContent = 'Time\'s Up!'; titleEl.style.color = '#ef5350'; }
+      if (subtitleEl) subtitleEl.textContent = 'You ran out of time';
     } else {
-      statusEl.textContent = 'AI ran out of time! You win!';
-      statusEl.classList.add('game-over');
+      statusEl.textContent = 'AI ran out of time!';
+      statusEl.className = 'status-badge game-over';
       this.stats.recordWin();
+      if (iconEl) iconEl.textContent = '🏆';
+      if (titleEl) { titleEl.textContent = 'Victory!'; titleEl.style.color = '#64ffda'; }
+      if (subtitleEl) subtitleEl.textContent = 'AI ran out of time';
+    }
+
+    if (overlay) {
+      setTimeout(() => overlay.classList.remove('hidden'), 800);
     }
   }
 
@@ -503,34 +564,46 @@ export class GameManager {
     if (this.chess.isCheckmate()) {
       const winner = this.chess.turn() === 'w' ? 'Black' : 'White';
       statusEl.textContent = `Checkmate! ${winner} wins!`;
-      statusEl.classList.add('game-over');
+      statusEl.className = 'status-badge game-over';
     } else if (this.chess.isStalemate()) {
       statusEl.textContent = 'Stalemate — Draw!';
-      statusEl.classList.add('game-over');
+      statusEl.className = 'status-badge game-over';
     } else if (this.chess.isDraw()) {
       statusEl.textContent = 'Draw!';
-      statusEl.classList.add('game-over');
+      statusEl.className = 'status-badge game-over';
     } else if (this.chess.isCheck()) {
       const turn = this.chess.turn() === 'w' ? 'White' : 'Black';
       statusEl.textContent = `${turn} is in check!`;
+      statusEl.className = 'status-badge in-check';
     } else {
       const turn = this.chess.turn() === 'w' ? 'White' : 'Black';
       statusEl.textContent = `${turn} to move`;
-      statusEl.classList.remove('game-over');
+      statusEl.className = 'status-badge';
     }
 
-    // Evaluation display
+    // Evaluation bar update
     if (!this.chess.isGameOver()) {
       const evalScore = evaluate(this.chess);
       const whiteScore = this.chess.turn() === 'w' ? evalScore : -evalScore;
       const displayScore = (whiteScore / 100).toFixed(1);
       const sign = whiteScore > 0 ? '+' : '';
-      const evalEl = document.getElementById('eval-display');
-      if (evalEl) {
-        evalEl.textContent = `Eval: ${sign}${displayScore}`;
-        evalEl.className = `eval-display ${whiteScore > 50 ? 'white-advantage' : whiteScore < -50 ? 'black-advantage' : 'equal'}`;
+
+      // Update eval bar (vertical)
+      const evalBarFill = document.getElementById('eval-bar-fill');
+      const evalBarScore = document.getElementById('eval-bar-score');
+      if (evalBarFill && evalBarScore) {
+        // Convert eval to percentage (sigmoid-ish mapping)
+        const pct = 50 + Math.max(-50, Math.min(50, whiteScore / 20));
+        evalBarFill.style.height = `${pct}%`;
+        evalBarScore.textContent = `${sign}${displayScore}`;
       }
     }
+  }
+
+  _updateAIRating() {
+    const ratingMap = { beginner: '~800', intermediate: '~1500', advanced: '~2200' };
+    const ratingEl = document.getElementById('ai-rating');
+    if (ratingEl) ratingEl.textContent = ratingMap[this.difficulty] || '~1500';
   }
 
   newGame() {
@@ -541,6 +614,16 @@ export class GameManager {
     this.board.setInteractive(true);
     this.board.refresh(this.chess.board(), null, null);
     this.updateStatus();
+
+    // Hide game over overlay
+    const overlay = document.getElementById('game-over-overlay');
+    if (overlay) overlay.classList.add('hidden');
+
+    // Reset eval bar
+    const evalBarFill = document.getElementById('eval-bar-fill');
+    const evalBarScore = document.getElementById('eval-bar-score');
+    if (evalBarFill) evalBarFill.style.height = '50%';
+    if (evalBarScore) evalBarScore.textContent = '0.0';
 
     // Reset clock with current time control
     const tc = TIME_CONTROLS[this.timeControl];

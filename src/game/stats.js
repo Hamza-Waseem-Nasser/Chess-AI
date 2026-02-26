@@ -98,19 +98,28 @@ export class GameStats {
     const total = s.wins + s.losses + s.draws;
     const winRate = total > 0 ? Math.round((s.wins / total) * 100) : 0;
 
-    // Streak display: 🔥3 for win streak, 💀3 for loss streak
+    // Streak display
     let streakText = '';
     if (s.streak > 0) {
-      streakText = `<span class="stat streak-win">🔥${s.streak}</span>`;
+      streakText = `<span class="stat streak-win" title="Win streak">🔥 ${s.streak}</span>`;
     } else if (s.streak < 0) {
-      streakText = `<span class="stat streak-loss">💀${Math.abs(s.streak)}</span>`;
+      streakText = `<span class="stat streak-loss" title="Loss streak">💀 ${Math.abs(s.streak)}</span>`;
     }
 
     this.container.innerHTML = `
       <div class="stats-bar">
-        <span class="stat win" title="Wins">W:${s.wins}</span>
-        <span class="stat loss" title="Losses">L:${s.losses}</span>
-        <span class="stat draw" title="Draws">D:${s.draws}</span>
+        <span class="stat win" title="Wins">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+          ${s.wins}
+        </span>
+        <span class="stat loss" title="Losses">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          ${s.losses}
+        </span>
+        <span class="stat draw" title="Draws">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          ${s.draws}
+        </span>
         <span class="stat rate" title="Win rate">${winRate}%</span>
         ${streakText}
       </div>
