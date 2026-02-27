@@ -133,6 +133,100 @@ export class BoardUI {
     document.addEventListener('mousemove', (e) => this._onDragMove(e));
     document.addEventListener('mouseup', (e) => this._onDragEnd(e));
 
+    // ---- Touch drag support ----
+    // Simple taps are already handled by the `click` event (works with touch-action:none).
+    // These handlers add drag-and-drop on top for touch screens.
+    this._touchStartSquare = null;
+    this._touchStartX = 0;
+    this._touchStartY = 0;
+    this._touchDragStarted = false;
+
+    // Record where the finger landed
+    this.boardEl.addEventListener('touchstart', (e) => {
+      const touch = e.changedTouches[0];
+      const squareEl = touch.target.closest('.square');
+      if (!squareEl) return;
+      this._touchStartSquare = squareEl.dataset.square;
+      this._touchStartX = touch.clientX;
+      this._touchStartY = touch.clientY;
+      this._touchDragStarted = false;
+    }, { passive: true });
+
+    // If the finger moves far enough, switch into drag mode
+    document.addEventListener('touchmove', (e) => {
+      if (!this._touchStartSquare) return;
+      const touch = e.changedTouches[0];
+      const dx = touch.clientX - this._touchStartX;
+      const dy = touch.clientY - this._touchStartY;
+
+      if (!this._touchDragStarted && Math.sqrt(dx * dx + dy * dy) > 8) {
+        // Threshold crossed — begin drag
+        this._touchDragStarted = true;
+        if (this.interactive && !this.pendingPromotion && this._getLegalMovesForSquare) {
+          const moves = this._getLegalMovesForSquare(this._touchStartSquare);
+          if (moves && moves.length > 0) {
+            this.selectedSquare = this._touchStartSquare;
+            this.legalMoves = moves;
+            this.dragFrom = this._touchStartSquare;
+            this.isDragging = true;
+
+            this.clearHighlights();
+            this.highlightLastMove(this.lastMove);
+            this.highlightSelected(this._touchStartSquare);
+            this.showLegalMoves(moves, this._getBoardState());
+
+            const srcEl = this.squares[this._touchStartSquare];
+            const pieceEl = srcEl?.querySelector('.piece');
+            if (pieceEl) {
+              this.dragPiece = pieceEl.cloneNode(true);
+              this.dragPiece.className = 'piece dragging';
+              this.dragPiece.style.width = SQUARE_SIZE + 'px';
+              this.dragPiece.style.height = SQUARE_SIZE + 'px';
+              document.body.appendChild(this.dragPiece);
+              this._moveDragPiece(touch.clientX, touch.clientY);
+              pieceEl.style.opacity = '0.3';
+            }
+          }
+        }
+      }
+
+      // While dragging, move the ghost piece and block scroll
+      if (this.isDragging && this.dragPiece) {
+        e.preventDefault();
+        this._moveDragPiece(touch.clientX, touch.clientY);
+      }
+    }, { passive: false });
+
+    // Drop: if dragging, resolve the drop; pure taps already handled by click
+    document.addEventListener('touchend', (e) => {
+      if (!this._touchStartSquare) return;
+      this._touchStartSquare = null;
+      if (!this.isDragging) return;
+
+      const touch = e.changedTouches[0];
+
+      if (this.dragPiece) {
+        this.dragPiece.remove();
+        this.dragPiece = null;
+      }
+
+      if (this.dragFrom) {
+        const srcEl = this.squares[this.dragFrom];
+        const pieceEl = srcEl?.querySelector('.piece');
+        if (pieceEl) pieceEl.style.opacity = '1';
+      }
+
+      const dropSquare = this._getSquareFromPoint(touch.clientX, touch.clientY);
+      if (dropSquare && this.legalMoves.includes(dropSquare) && dropSquare !== this.dragFrom) {
+        this._executeMove(this.dragFrom, dropSquare);
+      } else {
+        this._deselectPiece();
+      }
+
+      this.isDragging = false;
+      this.dragFrom = null;
+    });
+
     return this;
   }
 

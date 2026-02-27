@@ -8,8 +8,9 @@
 //     Only delta.content streams → we extract reasoning from partial JSON.
 //
 //   For REASONING models (o3, o1):
-//     Phase 1: delta.reasoning_content → rich "thinking" text displayed directly
-//     Phase 2: delta.content → JSON with the move (less interesting to show)
+//     Uses OpenAI Responses API (SDK v6+) which streams:
+//     Phase 1: response.reasoning_summary_text.delta → rich "thinking" text
+//     Phase 2: response.output_text.delta → JSON with the move
 //     This gives MUCH better reasoning display — real thought process.
 //
 // FEATURES:

@@ -77,11 +77,16 @@ body {
     radial-gradient(ellipse at 80% 20%, rgba(66, 165, 245, 0.04) 0%, transparent 50%);
   color: var(--text-primary);
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
   overflow-x: hidden;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Mobile: prevent pull-to-refresh and rubber-band scroll */
+  overscroll-behavior: none;
+  /* Remove tap highlight flash on iOS/Android */
+  -webkit-tap-highlight-color: transparent;
 }
 
 /* Scrollbar styling */
@@ -108,6 +113,9 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 0.6rem 1.5rem;
+  /* iOS notch / Dynamic Island safe area */
+  padding-left: max(1.5rem, env(safe-area-inset-left));
+  padding-right: max(1.5rem, env(safe-area-inset-right));
   background: var(--glass-bg);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
@@ -164,14 +172,16 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
-  height: 36px;
+  width: 44px;
+  height: 44px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-sm);
   background: rgba(255, 255, 255, 0.04);
   color: var(--text-secondary);
   cursor: pointer;
   transition: all var(--transition-fast);
+  /* Prevent double-tap zoom on mobile */
+  touch-action: manipulation;
 }
 
 .icon-btn:hover {
@@ -435,6 +445,7 @@ body {
   justify-content: center;
   gap: 0.4rem;
   padding: 0.55rem 1rem;
+  min-height: 44px;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--radius-sm);
   background: var(--bg-elevated);
@@ -445,6 +456,8 @@ body {
   cursor: pointer;
   transition: all var(--transition-fast);
   white-space: nowrap;
+  /* Prevent double-tap zoom on mobile */
+  touch-action: manipulation;
 }
 
 .ctrl-btn:hover {
@@ -550,6 +563,7 @@ body {
 .setting-select {
   flex: 1;
   padding: 0.35rem 0.5rem;
+  min-height: 40px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
@@ -565,6 +579,8 @@ body {
   background-repeat: no-repeat;
   background-position: right 8px center;
   padding-right: 28px;
+  /* Prevent double-tap zoom */
+  touch-action: manipulation;
 }
 
 .setting-select:focus {
@@ -763,10 +779,10 @@ body {
 
 .chat-bubble {
   position: fixed;
-  bottom: 1.5rem;
+  bottom: calc(1.5rem + env(safe-area-inset-bottom, 0px));
   left: 50%;
   transform: translateX(-50%) translateY(20px);
-  max-width: 460px;
+  max-width: min(460px, calc(100vw - 2rem));
   width: max-content;
   display: flex;
   align-items: center;
@@ -785,7 +801,7 @@ body {
   transition: opacity 0.35s cubic-bezier(0.16, 1, 0.3, 1), transform 0.35s cubic-bezier(0.16, 1, 0.3, 1);
   pointer-events: none;
   z-index: 200;
-  white-space: nowrap;
+  /* Removed white-space: nowrap — was causing overflow on small screens */
 }
 
 .chat-bubble.visible {
@@ -1376,6 +1392,8 @@ body {
   height: 100%;
   user-select: none;
   -webkit-user-select: none;
+  /* Critical: prevents page scroll while dragging pieces on touch screens */
+  touch-action: none;
 }
 
 .square {
@@ -1616,7 +1634,7 @@ body {
 
 @media (max-width: 600px) {
   :root {
-    --board-size: 95vw;
+    --board-size: min(95vw, calc(95vh - 200px));
     --panel-width: 95vw;
   }
 
@@ -1626,19 +1644,88 @@ body {
 
   .top-bar {
     padding: 0.5rem 1rem;
+    padding-left: max(1rem, env(safe-area-inset-left));
+    padding-right: max(1rem, env(safe-area-inset-right));
+  }
+
+  /* Allow sides to shrink so the center status badge doesn't get squeezed out */
+  .top-bar-left,
+  .top-bar-right {
+    min-width: auto;
+    flex-shrink: 1;
+  }
+
+  .logo-text {
+    font-size: 1rem;
   }
 
   .game-container {
     padding: 0.5rem;
+    padding-left: max(0.5rem, env(safe-area-inset-left));
+    padding-right: max(0.5rem, env(safe-area-inset-right));
     gap: 0.75rem;
   }
 
   .board-controls {
     flex-wrap: wrap;
+    gap: 0.4rem;
+  }
+
+  /* Larger tap target for the icon-only flip/share buttons */
+  .ctrl-btn.ctrl-icon {
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0;
   }
 
   .eval-bar-container {
     display: none;
+  }
+
+  /* Promotion dialog — bigger tap targets on phone */
+  .promotion-option {
+    width: 72px;
+    height: 72px;
+  }
+
+  /* Move history shorter on phone to preserve board space */
+  .move-history {
+    min-height: 80px;
+    max-height: 160px;
+  }
+
+  /* Reasoning panel shorter on phone */
+  .reasoning-content {
+    max-height: 180px;
+  }
+
+  /* Game over modal full-width on phone */
+  .game-over-modal {
+    padding: 2rem 1.5rem;
+    min-width: 0;
+    width: calc(100vw - 2rem);
+  }
+
+  /* Chat bubble: full-width pill at bottom, respect home bar */
+  .chat-bubble {
+    left: 1rem;
+    right: 1rem;
+    transform: translateY(20px);
+    max-width: none;
+    width: auto;
+    border-radius: var(--radius-lg);
+    bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+  }
+
+  .chat-bubble.visible {
+    transform: translateY(0);
+  }
+
+  /* Modal: full-width on small screens */
+  .modal-content {
+    width: calc(100vw - 2rem);
+    padding: 1.5rem;
+    border-radius: var(--radius-lg);
   }
 }
 

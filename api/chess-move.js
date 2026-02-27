@@ -101,44 +101,64 @@ Choose your move, explain your reasoning, and add a personality comment. Reply w
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
 
-    // Build API parameters
-    const systemRole = isReasoning ? 'developer' : 'system';
-    const apiParams = {
-      model,
-      messages: [
-        { role: systemRole, content: systemPrompt },
-        { role: 'user', content: userPrompt },
-      ],
-      stream: true,
-    };
-
-    if (isReasoning) {
-      apiParams.max_completion_tokens = 16000;
-    } else {
-      apiParams.temperature = diff.temp;
-      apiParams.max_tokens = 500;
-    }
-
     // Call OpenAI with streaming
-    const stream = await client.chat.completions.create(apiParams);
-
+    //
+    // Standard models (GPT-4o, GPT-4o-mini):
+    //   Chat Completions API — role: "system", temperature, max_tokens
+    //
+    // Reasoning models (o3, o1):
+    //   Responses API — streams reasoning via response.reasoning_summary_text.delta
+    //   (Chat Completions API no longer exposes delta.reasoning_content in SDK v6+)
+    //
     let fullResponse = '';
     let fullReasoning = '';
 
-    for await (const chunk of stream) {
-      const choice = chunk.choices[0];
-      if (!choice) continue;
+    if (isReasoning) {
+      // ---- REASONING MODELS: Use Responses API ----
+      const stream = await client.responses.create({
+        model,
+        instructions: systemPrompt,
+        input: userPrompt,
+        stream: true,
+        reasoning: { effort: 'medium', summary: 'auto' },
+        max_output_tokens: 16000,
+      });
 
-      const reasoningContent = choice.delta?.reasoning_content;
-      if (reasoningContent) {
-        fullReasoning += reasoningContent;
-        res.write(`data: ${JSON.stringify({ type: 'reasoning', content: reasoningContent })}\n\n`);
+      for await (const event of stream) {
+        switch (event.type) {
+          case 'response.reasoning_summary_text.delta':
+          case 'response.reasoning_text.delta':
+            fullReasoning += event.delta;
+            res.write(`data: ${JSON.stringify({ type: 'reasoning', content: event.delta })}\n\n`);
+            break;
+          case 'response.output_text.delta':
+            fullResponse += event.delta;
+            res.write(`data: ${JSON.stringify({ type: 'token', content: event.delta })}\n\n`);
+            break;
+        }
       }
+    } else {
+      // ---- STANDARD MODELS: Use Chat Completions API ----
+      const stream = await client.chat.completions.create({
+        model,
+        messages: [
+          { role: 'system', content: systemPrompt },
+          { role: 'user', content: userPrompt },
+        ],
+        stream: true,
+        temperature: diff.temp,
+        max_tokens: 500,
+      });
 
-      const content = choice.delta?.content;
-      if (content) {
-        fullResponse += content;
-        res.write(`data: ${JSON.stringify({ type: 'token', content })}\n\n`);
+      for await (const chunk of stream) {
+        const choice = chunk.choices[0];
+        if (!choice) continue;
+
+        const content = choice.delta?.content;
+        if (content) {
+          fullResponse += content;
+          res.write(`data: ${JSON.stringify({ type: 'token', content })}\n\n`);
+        }
       }
     }
 
